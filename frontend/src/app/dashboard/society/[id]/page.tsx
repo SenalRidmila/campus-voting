@@ -100,7 +100,8 @@ const PositionSection = ({ pos, votedPositions, initiateVote, votingFor, isViewO
 
   const sortedCandidates = [...pos.candidates].sort((a: any, b: any) => (b.voteCount || 0) - (a.voteCount || 0));
   const winner = sortedCandidates.length > 0 && (sortedCandidates[0].voteCount || 0) > 0 ? sortedCandidates[0] : null;
-  const maxVotes = sortedCandidates.length > 0 && (sortedCandidates[0].voteCount || 0) > 0 ? sortedCandidates[0].voteCount : 1;
+  const totalVotes = sortedCandidates.reduce((total: number, candidate: any) => total + (candidate.voteCount || 0), 0);
+  const maxVotes = Math.max(...sortedCandidates.map((candidate: any) => candidate.voteCount || 0), 1);
 
   useEffect(() => {
     if (!pos.resultTime || isFinished) return;
@@ -204,74 +205,91 @@ const PositionSection = ({ pos, votedPositions, initiateVote, votingFor, isViewO
         </div>
       </div>
 
-      {/* Modern Modal for Results Graph */}
+      {/* Results modal */}
       {showResults && isFinished && (
-        <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm transition-opacity duration-300">
-          <div className="bg-white rounded-3xl shadow-2xl w-full max-w-2xl overflow-hidden transform transition-all duration-300 scale-100 opacity-100">
-            <div className="p-6 md:p-8 flex justify-between items-center border-b border-slate-100 bg-slate-50/50">
-              <div className="flex items-center gap-3">
-                <span className="text-3xl">📊</span>
-                <div>
-                  <h3 className="text-2xl font-bold text-slate-800 tracking-tight">Official Results</h3>
-                  <p className="text-sm font-medium text-slate-500">{pos.name}</p>
+        <div className="fixed inset-0 z-[200] flex items-center justify-center bg-slate-950/70 p-4 backdrop-blur-sm">
+          <div className="w-full max-w-3xl overflow-hidden rounded-2xl bg-white shadow-2xl">
+            <div className="flex items-start justify-between border-b border-slate-200 bg-slate-900 p-6 text-white md:p-8">
+              <div>
+                <p className="text-xs font-bold uppercase tracking-[0.22em] text-cyan-300">Official result</p>
+                <h3 className="mt-2 text-2xl font-bold tracking-tight md:text-3xl">{pos.name}</h3>
+                <p className="mt-1 text-sm text-slate-300">Final vote distribution across {sortedCandidates.length} candidates</p>
+              </div>
+              <button onClick={() => setShowResults(false)} className="flex h-9 w-9 items-center justify-center rounded-lg border border-slate-600 text-xl text-slate-300 transition hover:border-white hover:text-white" aria-label="Close results">×</button>
+            </div>
+
+            <div className="max-h-[75vh] space-y-6 overflow-y-auto p-6 md:p-8">
+              <div className="grid gap-4 md:grid-cols-[1fr_auto]">
+                <div className="rounded-xl border border-cyan-100 bg-cyan-50 p-5">
+                  <p className="text-xs font-bold uppercase tracking-[0.18em] text-cyan-700">Winner</p>
+                  <div className="mt-2 flex items-center gap-4">
+                    <div className="h-14 w-14 overflow-hidden rounded-xl bg-white ring-2 ring-cyan-200">
+                      {winner?.profilePic ? <img src={winner.profilePic} alt={winner.name} className="h-full w-full object-cover" /> : <div className="flex h-full items-center justify-center text-xl font-bold text-cyan-700">{winner?.name?.charAt(0) || "-"}</div>}
+                    </div>
+                    <div>
+                      <p className="text-2xl font-bold text-slate-900">{winner?.name || "No winner"}</p>
+                      <p className="text-sm text-slate-600">{winner ? `${winner.voteCount} votes` : "No votes were cast"}</p>
+                    </div>
+                  </div>
+                </div>
+                <div className="rounded-xl border border-slate-200 bg-slate-50 p-5 md:min-w-40">
+                  <p className="text-xs font-bold uppercase tracking-[0.18em] text-slate-500">Total votes</p>
+                  <p className="mt-2 text-4xl font-bold text-slate-900">{totalVotes}</p>
+                  <p className="mt-1 text-xs text-slate-500">Verified on the election ledger</p>
                 </div>
               </div>
-              <button 
-                onClick={() => setShowResults(false)} 
-                className="text-slate-400 hover:text-slate-800 bg-slate-100 hover:bg-slate-200 rounded-full w-10 h-10 flex items-center justify-center transition-colors"
-                aria-label="Close"
-              >
-                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M6 18L18 6M6 6l12 12"></path></svg>
-              </button>
-            </div>
-            <div className="p-6 md:p-8 space-y-8 max-h-[70vh] overflow-y-auto">
-              {sortedCandidates.map((c: any, index: number) => {
-                const voteCount = c.voteCount || 0;
-                const percentage = maxVotes > 0 ? (voteCount / maxVotes) * 100 : 0; 
-                const isWinner = index === 0 && voteCount > 0;
-                
-                return (
-                  <div key={c.id} className="flex items-center gap-4">
-                    {/* Candidate Profile Image */}
-                    <div className={`relative w-14 h-14 shrink-0 flex-none rounded-full overflow-hidden border-[3px] shadow-md z-10 
-                       ${isWinner ? 'border-indigo-500 shadow-indigo-200' : 'border-slate-200'} `}>
-                       {c.profilePic ? (
-                          <img src={c.profilePic} alt={c.name} className="w-full h-full object-cover bg-white" />
-                       ) : (
-                          <div className="w-full h-full bg-slate-100 flex items-center justify-center text-slate-400">
-                             <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"></path></svg>
-                          </div>
-                       )}
-                       {isWinner && (
-                         <div className="absolute -top-1 -right-1 bg-white rounded-full text-indigo-500 p-0.5 shadow-sm text-xs">
-                           👑
-                         </div>
-                       )}
+
+              <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 md:p-6">
+                <div className="mb-5 flex items-center justify-between">
+                  <div>
+                    <p className="text-xs font-bold uppercase tracking-[0.18em] text-slate-500">Vote count by candidate</p>
+                    <p className="mt-1 text-sm text-slate-500">Higher bars represent more votes</p>
+                  </div>
+                  <p className="hidden text-xs font-semibold uppercase tracking-widest text-slate-400 sm:block">Final count</p>
+                </div>
+
+                <div className="overflow-x-auto pb-2">
+                  <div className="flex min-w-[620px] gap-3">
+                    <div className="flex h-72 w-12 shrink-0 flex-col justify-between pb-12 pt-2 text-right text-[11px] font-semibold text-slate-400">
+                      {[1, 0.75, 0.5, 0.25, 0].map((ratio) => (
+                        <span key={ratio}>{Math.round(maxVotes * ratio)}</span>
+                      ))}
                     </div>
-                    
-                    {/* Result Graph Container */}
-                    <div className="flex flex-col gap-2 flex-grow">
-                      <div className="flex justify-between items-end pl-1">
-                        <span className={`font-bold text-base leading-none ${isWinner ? 'text-indigo-700' : 'text-slate-700'}`}>
-                          {c.name}
-                        </span>
-                        <div className="flex flex-col items-end leading-none">
-                          <span className={`font-extrabold text-xl ${isWinner ? 'text-indigo-600' : 'text-slate-600'}`}>
-                            {voteCount} <span className="text-xs font-semibold text-slate-400 tracking-widest uppercase">Votes</span>
-                          </span>
-                        </div>
+
+                    <div className="relative h-72 min-w-0 flex-1 border-b border-l border-slate-300 bg-white">
+                      <div className="pointer-events-none absolute inset-x-0 top-0 bottom-12 flex flex-col justify-between">
+                        {[1, 0.75, 0.5, 0.25, 0].map((ratio) => (
+                          <div key={ratio} className="border-t border-dashed border-slate-200" />
+                        ))}
                       </div>
-                      <div className="w-full bg-slate-100 h-4 rounded-full relative overflow-hidden shadow-inner">
-                        <div 
-                          className={`absolute top-0 left-0 h-full transition-all duration-1000 ease-out rounded-full 
-                             ${isWinner ? 'bg-gradient-to-r from-indigo-500 to-purple-600 shadow-[0_0_10px_rgba(79,70,229,0.5)]' : 'bg-slate-400'}`} 
-                          style={{ width: `${Math.max(percentage, 2)}%` }}
-                        ></div>
+                      <div className="relative flex h-full items-end gap-3 px-4 pt-4">
+                        {sortedCandidates.map((candidate: any, index: number) => {
+                          const voteCount = candidate.voteCount || 0;
+                          const percentage = totalVotes > 0 ? (voteCount / totalVotes) * 100 : 0;
+                          const barHeight = (voteCount / maxVotes) * 100;
+                          const isWinner = index === 0 && voteCount > 0;
+
+                          return (
+                            <div key={candidate.id} className="flex h-full min-w-[76px] flex-1 flex-col items-center justify-end">
+                              <span className={`mb-2 text-sm font-bold ${isWinner ? "text-cyan-700" : "text-slate-600"}`}>{voteCount}</span>
+                              <div className="flex h-[calc(100%-5rem)] w-full items-end justify-center">
+                                <div className={`w-10 rounded-t-lg transition-all duration-700 sm:w-14 ${isWinner ? "bg-cyan-500 shadow-lg shadow-cyan-200" : "bg-slate-400"}`} style={{ height: `${Math.max(barHeight, voteCount > 0 ? 4 : 1)}%` }} />
+                              </div>
+                              <div className="mt-3 h-12 w-full text-center">
+                                <p className={`truncate text-xs font-bold ${isWinner ? "text-cyan-800" : "text-slate-700"}`} title={candidate.name}>{candidate.name}</p>
+                                <p className="mt-1 text-[10px] font-semibold text-slate-400">{percentage.toFixed(1)}%</p>
+                              </div>
+                            </div>
+                          );
+                        })}
                       </div>
                     </div>
                   </div>
-                )
-              })}
+                </div>
+
+                <div className="mt-3 flex justify-center text-xs font-bold uppercase tracking-[0.2em] text-slate-400">Candidate</div>
+                <div className="mt-1 flex items-center justify-center gap-2 text-[10px] font-bold uppercase tracking-[0.15em] text-slate-400"><span className="-rotate-90">Votes</span></div>
+              </div>
             </div>
           </div>
         </div>

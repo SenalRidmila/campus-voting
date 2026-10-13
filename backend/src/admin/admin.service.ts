@@ -1,18 +1,44 @@
-import { Injectable, UnauthorizedException, NotFoundException, BadRequestException, Inject } from '@nestjs/common';
+import { Injectable, UnauthorizedException, NotFoundException, BadRequestException, Inject, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
 import { CACHE_MANAGER } from '@nestjs/cache-manager';
 import { Cache } from 'cache-manager'; 
 import { PrismaService } from '../prisma.service';
 import * as bcrypt from 'bcrypt';
 import * as jwt from 'jsonwebtoken';
 import { ethers } from 'ethers';
+import * as nodemailer from 'nodemailer';
 import * as VotingABI from '../vote/Voting.json';
 
 @Injectable()
-export class AdminService {
+export class AdminService implements OnModuleInit, OnModuleDestroy {
+  private mailTransporter: nodemailer.Transporter;
+  private winnerNotificationTimer?: NodeJS.Timeout;
+
   constructor(
     private prisma: PrismaService,
     @Inject(CACHE_MANAGER) private cacheManager: any 
-  ) {}
+  ) {
+    this.mailTransporter = nodemailer.createTransport({
+      service: 'gmail',
+      auth: {
+        user: process.env.EMAIL_USER?.trim(),
+        pass: process.env.EMAIL_PASS?.replace(/\s+/g, '').trim(),
+      },
+    });
+  }
+
+  onModuleInit() {
+    this.winnerNotificationTimer = setInterval(() => {
+      this.notifyCompletedElections().catch((error) => {
+        console.error('Winner notification check failed:', error);
+      });
+    }, 60_000);
+  }
+
+  onModuleDestroy() {
+    if (this.winnerNotificationTimer) {
+      clearInterval(this.winnerNotificationTimer);
+    }
+  }
 
   // --- ADMIN LOGIN ---
   async login(email: string, pass: string) {
@@ -106,7 +132,61 @@ export class AdminService {
       console.error("Failed to fetch accurate vote counts from smart contract:", error);
     }
 
+    await Promise.all(positions.map((position) => this.notifyElectionWinner(position)));
+
     return positions;
+  }
+
+  private async notifyElectionWinner(position: any) {
+    if (!position.resultTime || new Date(position.resultTime).getTime() > Date.now()) {
+      return;
+    }
+
+    const winner = [...position.candidates]
+      .sort((first: any, second: any) => second.voteCount - first.voteCount)
+      .find((candidate: any) => candidate.voteCount > 0);
+
+    if (!winner || position.winnerNotifiedAt) {
+      return;
+    }
+
+    const claimed = await this.prisma.position.updateMany({
+      where: { id: position.id, winnerNotifiedAt: null },
+      data: { winnerNotifiedAt: new Date() },
+    });
+
+    if (claimed.count !== 1) {
+      return;
+    }
+
+    const students = await this.prisma.user.findMany({
+      select: { email: true, fullName: true },
+    });
+
+    const emailResults = await Promise.allSettled(
+      students.map((student) => this.mailTransporter.sendMail({
+        from: `"Campus Voting App" <${process.env.EMAIL_USER}>`,
+        to: student.email,
+        subject: `Election result: ${winner.name} won ${position.name}`,
+        html: `
+          <div style="font-family: Arial, sans-serif; padding: 24px; color: #1f2937;">
+            <h2>Election Result Announcement</h2>
+            <p>Hello ${student.fullName},</p>
+            <p>The election for the <strong>${position.name}</strong> position has ended.</p>
+            <p><strong>${winner.name}</strong> won the election.</p>
+            <p>Thank you for participating in the Campus Voting App.</p>
+          </div>
+        `,
+      })),
+    );
+
+    const failedEmails = emailResults.filter((result) => result.status === 'rejected').length;
+    console.log(`Winner announcement sent for ${position.name}; failed emails: ${failedEmails}`);
+  }
+
+  private async notifyCompletedElections() {
+    const societies = await this.prisma.society.findMany({ select: { id: true } });
+    await Promise.all(societies.map((society) => this.getPositions(society.id)));
   }
 
   async updatePosition(id: number, data: any) {

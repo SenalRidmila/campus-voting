@@ -50,6 +50,7 @@ model Position {
   name        String
   societyId   Int
   resultTime  DateTime?
+  winnerNotifiedAt DateTime?
   createdAt   DateTime     @default(now())
   candidates  Candidate[]
   society     Society      @relation(fields: [societyId], references: [id], onDelete: Cascade)
