@@ -14,8 +14,8 @@ NODE_PID=$!
 echo "Waiting for 5 seconds for Ganache to be fully ready..."
 sleep 5
 
-echo "Deploying the smart contract (skips if already deployed)..."
-npx hardhat ignition deploy ignition/modules/Voting.ts --network localhost
+echo "Deploying the smart contract using Hardhat scripts..."
+npx hardhat run scripts/deploy.ts --network localhost
 
 echo "Smart contract deployed successfully! Keeping Ganache alive..."
 wait $NODE_PID

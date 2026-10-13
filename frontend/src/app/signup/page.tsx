@@ -2,6 +2,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import FaceScanner from "@/components/FaceScanner";
 
 export default function SignupPage() {
   const router = useRouter();
@@ -14,6 +15,7 @@ export default function SignupPage() {
   const [fullName, setFullName] = useState("");
   const [studentId, setStudentId] = useState("");
   const [faculty, setFaculty] = useState("");
+  const [showScanner, setShowScanner] = useState(false);
 
   const handleSendOtp = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -32,13 +34,18 @@ export default function SignupPage() {
       return;
     }
 
+    setShowScanner(true);
+  };
+
+  const processRegistration = async (faceImage: string) => {
+    setShowScanner(false);
     setIsLoading(true);
 
     try {
-      const response = await fetch("/api/auth/request-signup-otp", {
+      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://127.0.0.1:3001'}/auth/request-signup-otp`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ fullName, studentId, faculty, email }),
+        body: JSON.stringify({ fullName, studentId, faculty, email, faceImage }),
       });
 
       const data = await response.json();
@@ -47,7 +54,9 @@ export default function SignupPage() {
         throw new Error(data.message || "Something went wrong!");
       }
 
+      setShowScanner(true);
       setShowOtp(true);
+      setShowScanner(false); // Make sure it's closed
       
     } catch (err: any) {
       setError(err.message);
@@ -68,7 +77,7 @@ export default function SignupPage() {
     setIsLoading(true);
 
     try {
-      const response = await fetch("/api/auth/verify-signup", {
+      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://127.0.0.1:3001'}/auth/verify-signup`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email, otp }),
@@ -179,6 +188,15 @@ export default function SignupPage() {
           )}
         </div>
       </div>
+      
+      {showScanner && (
+        <FaceScanner 
+          title="Face Registration"
+          message="Please look at the camera to register your face. This will be used to verify your identity when voting."
+          onCapture={processRegistration}
+          onCancel={() => setShowScanner(false)}
+        />
+      )}
     </div>
   );
 }

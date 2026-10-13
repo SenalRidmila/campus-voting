@@ -15,7 +15,7 @@ export class VoteController {
   }
 
   @Post()
-  async castVote(@Body() body: { candidateId: number }, @Req() req: any) {
+  async castVote(@Body() body: { candidateId: number, timeTaken?: number, faceImage?: string }, @Req() req: any) {
     
     const authHeader = req.headers.authorization;
     if (!authHeader) throw new UnauthorizedException("No token provided");
@@ -27,9 +27,10 @@ export class VoteController {
       const decoded: any = jwt.verify(token, secret);
       
       const userId = decoded.userId;
-      console.log(` Relaying vote for User ID: ${userId}`);
+      const timeTaken = body.timeTaken || 0; // Default to 0 if not provided
+      console.log(` Relaying vote for User ID: ${userId} taking ${timeTaken} seconds`);
 
-      return await this.voteService.castVote(userId, body.candidateId);
+      return await this.voteService.castVote(userId, body.candidateId, timeTaken, body.faceImage);
       
     } catch (err: any) {
       if (err.name === 'BadRequestException' || err.status === 400) {

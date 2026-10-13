@@ -1,0 +1,26 @@
+﻿version: '3.8'
+services:
+  blockchain:
+    image: campusvotingacrsea7768.azurecr.io/voting-blockchain:latest
+    ports:
+      - "8545:8545"
+  backend:
+    image: campusvotingacrsea7768.azurecr.io/voting-backend:latest
+    ports:
+      - "3001:3001"
+    environment:
+      - DATABASE_URL=postgresql://user:password@db:5432/voting_db
+      - RPC_URL=http://blockchain:8545
+  frontend:
+    image: campusvotingacrsea7768.azurecr.io/voting-frontend:latest
+    ports:
+      - "3000:3000"
+    environment:
+      - NEXT_PUBLIC_API_URL=https://campusvotingappsea7768.azurewebsites.net
+      - NEXT_PUBLIC_RPC_URL=https://campusvotingappsea7768.azurewebsites.net
+  db:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_USER: user
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: voting_db

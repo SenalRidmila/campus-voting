@@ -1,4 +1,4 @@
-import { Injectable, UnauthorizedException, NotFoundException, Inject } from '@nestjs/common';
+import { Injectable, UnauthorizedException, NotFoundException, BadRequestException, Inject } from '@nestjs/common';
 import { CACHE_MANAGER } from '@nestjs/cache-manager';
 import { Cache } from 'cache-manager'; 
 import { PrismaService } from '../prisma.service';
@@ -55,7 +55,24 @@ export class AdminService {
 
   // --- POSITIONS ---
   async createPosition(data: any) {
-    const res = await this.prisma.position.create({ data });
+    const societyId = Number(data.societyId);
+
+    if (!Number.isInteger(societyId) || societyId <= 0) {
+      throw new BadRequestException('A valid societyId is required to create a position.');
+    }
+
+    const society = await this.prisma.society.findUnique({ where: { id: societyId } });
+    if (!society) {
+      throw new BadRequestException(`Society ${societyId} was not found. Refresh the admin dashboard and select an existing society.`);
+    }
+
+    const res = await this.prisma.position.create({
+      data: {
+        name: data.name,
+        societyId,
+        resultTime: data.resultTime ? new Date(data.resultTime) : null,
+      },
+    });
     await this.cacheManager.clear();
     return res;
   }

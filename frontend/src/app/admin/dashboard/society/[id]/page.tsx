@@ -35,11 +35,18 @@ export default function ManageElection() {
   const handlePosSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     const url = editingPosId ? `/api/admin/positions/${editingPosId}` : "/api/admin/positions";
-    await fetch(url, {
+    const res = await fetch(url, {
       method: editingPosId ? "PUT" : "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ name: posName, societyId: Number(societyId), resultTime: posResultTime ? new Date(posResultTime).toISOString() : null }),
     });
+
+    if (!res.ok) {
+      const error = await res.json().catch(() => null);
+      alert(error?.message || "Failed to save position. Refresh the society list and try again.");
+      return;
+    }
+
     setEditingPosId(null); setPosName(""); setPosResultTime(""); fetchPositions();
   };
 
@@ -54,7 +61,32 @@ export default function ManageElection() {
     const file = e.target.files?.[0];
     if (file) {
       const reader = new FileReader();
-      reader.onloadend = () => setCandImage(reader.result as string);
+      reader.onload = (event) => {
+        const img = new Image();
+        img.onload = () => {
+          const canvas = document.createElement("canvas");
+          const MAX_WIDTH = 400;
+          const MAX_HEIGHT = 400;
+          let width = img.width;
+          let height = img.height;
+          
+          if (width > height && width > MAX_WIDTH) {
+            height *= MAX_WIDTH / width;
+            width = MAX_WIDTH;
+          } else if (height > MAX_HEIGHT) {
+            width *= MAX_HEIGHT / height;
+            height = MAX_HEIGHT;
+          }
+          
+          canvas.width = width;
+          canvas.height = height;
+          const ctx = canvas.getContext("2d");
+          ctx?.drawImage(img, 0, 0, width, height);
+          
+          setCandImage(canvas.toDataURL("image/jpeg", 0.6));
+        };
+        img.src = event.target?.result as string;
+      };
       reader.readAsDataURL(file);
     }
   };

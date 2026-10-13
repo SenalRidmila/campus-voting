@@ -28,7 +28,9 @@ export default function AdminDashboard() {
   const fetchSocieties = async () => {
     try {
       const res = await fetch("/api/admin/societies");
-      setSocieties(await res.json());
+      const data = await res.json();
+      if (Array.isArray(data)) setSocieties(data);
+      else console.error("Expected array but got:", data);
     } catch (err) { console.error(err); }
   };
 
@@ -36,7 +38,33 @@ export default function AdminDashboard() {
     const file = e.target.files?.[0];
     if (file) {
       const reader = new FileReader();
-      reader.onloadend = () => setImage(reader.result as string);
+      reader.onload = (event) => {
+        const img = new Image();
+        img.onload = () => {
+          const canvas = document.createElement("canvas");
+          const MAX_WIDTH = 600;
+          const MAX_HEIGHT = 600;
+          let width = img.width;
+          let height = img.height;
+          
+          if (width > height && width > MAX_WIDTH) {
+            height *= MAX_WIDTH / width;
+            width = MAX_WIDTH;
+          } else if (height > MAX_HEIGHT) {
+            width *= MAX_HEIGHT / height;
+            height = MAX_HEIGHT;
+          }
+          
+          canvas.width = width;
+          canvas.height = height;
+          const ctx = canvas.getContext("2d");
+          ctx?.drawImage(img, 0, 0, width, height);
+          
+          // Compress to JPEG with 0.6 quality (reduces size by 90%)
+          setImage(canvas.toDataURL("image/jpeg", 0.6));
+        };
+        img.src = event.target?.result as string;
+      };
       reader.readAsDataURL(file);
     }
   };

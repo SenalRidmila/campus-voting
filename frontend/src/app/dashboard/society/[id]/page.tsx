@@ -2,6 +2,7 @@
 import { useState, useEffect, useRef } from "react";
 import { useRouter, useParams, useSearchParams } from "next/navigation";
 import confetti from "canvas-confetti";
+import FaceScanner from "@/components/FaceScanner";
 
 // --- Simple Toast System ---
 type Toast = { id: number; message: string; type: "success" | "error" | "warning" };
@@ -88,7 +89,7 @@ const SwipeToVote = ({ onVote, isVoting, disabled }: { onVote: (reset: () => voi
   );
 };
 
-const PositionSection = ({ pos, votedPositions, handleVote, votingFor, isViewOnly }: any) => {
+const PositionSection = ({ pos, votedPositions, initiateVote, votingFor, isViewOnly }: any) => {
   const router = useRouter();
   const [isFinished, setIsFinished] = useState(() => {
     if (!pos.resultTime) return false;
@@ -310,7 +311,7 @@ const PositionSection = ({ pos, votedPositions, handleVote, votingFor, isViewOnl
                       Voting Closed
                     </button>
                   ) : (
-                    <SwipeToVote onVote={(reset) => handleVote(c.id, c.name, pos.id, reset)} isVoting={votingFor === c.id} disabled={false} />
+                    <SwipeToVote onVote={(reset) => initiateVote(c.id, c.name, pos.id, reset)} isVoting={votingFor === c.id} disabled={false} />
                   )
                 ) : (
                    <button disabled className="w-full py-3 bg-white text-[#8b2635] border-2 border-[#d5cbb4] font-bold text-xs uppercase tracking-widest cursor-not-allowed text-center mt-2">
@@ -348,6 +349,10 @@ export default function VotingPage() {
   const [votingFor, setVotingFor] = useState<number | null>(null);
   const [votedPositions, setVotedPositions] = useState<Set<number>>(new Set()); 
   const [isLoading, setIsLoading] = useState(true);
+  const [timeLeft, setTimeLeft] = useState(60); // 60s countdown tracking
+
+  const [showScanner, setShowScanner] = useState(false);
+  const [pendingVote, setPendingVote] = useState<any>(null);
 
   // -- Toast State --
   const [toasts, setToasts] = useState<Toast[]>([]);
@@ -375,6 +380,28 @@ export default function VotingPage() {
     
     fetchPositions();
   }, [societyId]);
+
+  // -- 60s Logout Timer Effect --
+  useEffect(() => {
+    if (isViewOnly || showScanner) return; 
+
+    if (timeLeft <= 0) {
+      showError("Time is up! You have been logged out due to inactivity.");
+      localStorage.removeItem("voting_token");
+      localStorage.removeItem("user_data");
+      setTimeout(() => {
+        window.location.href = "/login";
+      }, 1000); 
+      return;
+    }
+
+    const timer = setInterval(() => {
+      setTimeLeft(prev => prev - 1);
+    }, 1000);
+
+    return () => clearInterval(timer);
+  }, [timeLeft, isViewOnly, showScanner]);
+  // -----------------------------
 
   const fetchPositions = async () => {
     setIsLoading(true);
@@ -417,7 +444,47 @@ export default function VotingPage() {
     }
   };
 
-  const handleVote = async (candidateId: number, candidateName: string, positionId: number, resetSwipe: () => void) => {
+  const initiateVote = (candidateId: number, candidateName: string, positionId: number, resetSwipe: () => void) => {
+    if (isViewOnly) {
+      showWarning("You are not eligible to vote in this society's election");
+      resetSwipe();
+      return;
+    }
+
+    if (votedPositions.has(positionId)) {
+      showError(`You have already voted for the ${positions.find(p => p.id === positionId)?.name} position`);
+      resetSwipe();
+      return;
+    }
+
+    const userDataStr = localStorage.getItem("user_data");
+    const userData = userDataStr ? JSON.parse(userDataStr) : null;
+    
+    if (!userData || !userData.faceDescriptor) {
+      if (!window.confirm(`Are you sure you want to vote for ${candidateName.toUpperCase()}?\n\n(No Face Data found, proceeding without verification)`)) {
+        resetSwipe(); 
+        return;
+      }
+      handleVote(candidateId, candidateName, positionId, resetSwipe);
+      return;
+    }
+
+    setPendingVote({ candidateId, candidateName, positionId, resetSwipe });
+    setShowScanner(true);
+  };
+
+  const processFaceVerification = (capturedImageBase64: string) => {
+    setShowScanner(false);
+    if (!pendingVote) return;
+    
+    const { candidateId, candidateName, positionId, resetSwipe } = pendingVote;
+    
+    // We send the image to the backend to let it verify using AI Microservice
+    handleVote(candidateId, candidateName, positionId, resetSwipe, capturedImageBase64);
+    setPendingVote(null);
+  };
+
+  const handleVote = async (candidateId: number, candidateName: string, positionId: number, resetSwipe: () => void, faceImage?: string) => {
     if (isViewOnly) {
       showWarning("You are not eligible to vote in this society's election");
       resetSwipe();
@@ -444,13 +511,19 @@ export default function VotingPage() {
         return;
       }
 
-      const res = await fetch("/api/vote", {
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://127.0.0.1:3001'}/vote`, {
         method: "POST",
         headers: { 
           "Content-Type": "application/json", 
           "Authorization": `Bearer ${token}` 
         },
-        body: JSON.stringify({ candidateId, societyId, positionId }), 
+        body: JSON.stringify({ 
+          candidateId, 
+          societyId, 
+          positionId, 
+          timeTaken: 60 - Math.max(0, timeLeft),
+          faceImage 
+        }), 
         cache: "no-store", 
       });
 
@@ -472,6 +545,7 @@ export default function VotingPage() {
         localStorage.setItem("user_data", JSON.stringify(userData));
 
         showSuccess(`You have successfully voted for ${candidateName}!`);
+        setTimeLeft(60); // Reset timer
       } else {
         showError(data.message || "Failed to process your vote. Please try again.");
       }
@@ -500,6 +574,19 @@ export default function VotingPage() {
             BACK
           </button>
           
+          {/* 20s Logout Timer UI */}
+          {!isViewOnly && (
+            <div className={`font-bold px-4 flex items-center gap-2 py-1 rounded shadow-sm border-2 ${
+              timeLeft <= 5 ? "bg-red-50 text-red-600 border-red-500 animate-pulse" : "bg-[#fbf9f4] text-[#1a2f4c] border-[#d5cbb4]"
+            }`}>
+              <svg className={`w-4 h-4 ${timeLeft <= 5 ? "text-red-500" : "text-[#1a2f4c]"}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+              <span className="uppercase text-[10px] tracking-widest hidden sm:inline">Time Left:</span> 
+              <span className={`text-lg leading-none ${timeLeft <= 5 ? "text-red-600" : "text-[#8b2635]"}`}>{timeLeft}s</span>
+            </div>
+          )}
+
           <div className="flex items-center gap-3">
              <div className="w-8 h-8 border-2 border-[#1a2f4c] bg-[#1a2f4c] flex items-center justify-center shadow-md">
                 <span className="text-white font-bold text-lg uppercase font-serif">V</span>
@@ -534,7 +621,7 @@ export default function VotingPage() {
                 key={pos.id} 
                 pos={pos} 
                 votedPositions={votedPositions} 
-                handleVote={handleVote} 
+                initiateVote={initiateVote} 
                 votingFor={votingFor} 
                 isViewOnly={isViewOnly} 
              />
@@ -554,6 +641,19 @@ export default function VotingPage() {
           *** End of Ballot ***
         </div>
       </main>
+
+      {showScanner && (
+        <FaceScanner 
+          title="Security Check"
+          message="Please verify your identity to authorize this vote."
+          onCapture={processFaceVerification}
+          onCancel={() => {
+            setShowScanner(false);
+            if (pendingVote) pendingVote.resetSwipe();
+            setPendingVote(null);
+          }}
+        />
+      )}
     </div>
   );
 }

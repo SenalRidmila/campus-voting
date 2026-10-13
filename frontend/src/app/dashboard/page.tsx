@@ -27,18 +27,28 @@ export default function StudentDashboard() {
       return;
     }
     setUserData(JSON.parse(userStr));
+
+    // 20 Minute Session Expiration
+    const sessionTimer = setTimeout(() => {
+      alert("Your session has expired (20 minutes). Please log in again.");
+      localStorage.removeItem("voting_token");
+      localStorage.removeItem("user_data");
+      router.push("/login");
+    }, 20 * 60 * 1000);
+
+    return () => clearTimeout(sessionTimer);
   }, []);
 
   const { data: allSocieties, isLoading: isSwrLoading } = useSWR<Society[]>(
     "/api/admin/societies",
     fetcher,
     {
-      revalidateOnFocus: false, 
-      dedupingInterval: 60000,  
+      revalidateOnFocus: true, 
+      dedupingInterval: 2000,  
     }
   );
 
-  const societies = allSocieties || [];
+  const societies = Array.isArray(allSocieties) ? allSocieties : [];
 
   const handleLogout = () => {
     localStorage.removeItem("voting_token");

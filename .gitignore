@@ -14,3 +14,10 @@ blockchain/typechain-types/
 
 blockchain/foundry.zip
 blockchain/foundry_bin/
+blockchain/ganache_data/
+blockchain/state.json
+blockchain/ignition/deployments/
+
+ai-microservice/venv/
+ai-microservice/__pycache__/
+ai-microservice/temp_faces/

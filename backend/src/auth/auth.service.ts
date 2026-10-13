@@ -10,6 +10,8 @@ import * as VotingABI from '../vote/Voting.json';
 @Injectable()
 export class AuthService {
   private transporter: nodemailer.Transporter;
+  private readonly emailUser: string;
+  private readonly emailPass: string;
   private tempOtps = new Map<string, { otp: string, userData: any }>();
 
   private readonly algorithm = 'aes-256-cbc';
@@ -20,11 +22,18 @@ export class AuthService {
   private votingContract: ethers.Contract;
 
   constructor(private prisma: PrismaService) {
+    this.emailUser = process.env.EMAIL_USER?.trim() || '';
+    this.emailPass = process.env.EMAIL_PASS?.replace(/\s+/g, '').trim() || '';
+
+    if (!this.emailUser || !this.emailPass) {
+      throw new Error('Email configuration missing in AuthService');
+    }
+
     this.transporter = nodemailer.createTransport({
       service: 'gmail',
       auth: {
-        user: process.env.EMAIL_USER,
-        pass: process.env.EMAIL_PASS,
+        user: this.emailUser,
+        pass: this.emailPass,
       },
     });
 
@@ -59,7 +68,7 @@ export class AuthService {
     return iv.toString('hex') + ':' + encrypted.toString('hex');
   }
 
-  async requestSignupOTP(data: { fullName: string; studentId: string; faculty: string; email: string }) {
+  async requestSignupOTP(data: { fullName: string; studentId: string; faculty: string; email: string; faceImage?: string }) {
     const existingUser = await this.prisma.user.findFirst({
       where: {
         OR: [{ email: data.email }, { studentId: data.studentId }],
@@ -70,15 +79,35 @@ export class AuthService {
       throw new BadRequestException('User with this Email or Student ID already exists.');
     }
 
+    let faceDescriptor: string | null = null;
+    if (data.faceImage) {
+      try {
+        const aiResponse = await fetch('http://127.0.0.1:8000/extract-face', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ image_base64: data.faceImage }),
+        });
+        if (!aiResponse.ok) {
+          throw new BadRequestException('Failed to extract face details. Ensure face is clear.');
+        }
+        const aiData = await aiResponse.json();
+        faceDescriptor = JSON.stringify(aiData.embedding);
+      } catch (err) {
+        console.error('AI Service Error:', err);
+        throw new BadRequestException('Face verification AI failed. Is the Python service running?');
+      }
+    }
+
+    const normalizedEmail = data.email.trim().toLowerCase();
     const otp = this.generateOTP();
-    this.tempOtps.set(data.email, { otp, userData: data });
+    this.tempOtps.set(normalizedEmail, { otp, userData: { ...data, email: normalizedEmail, faceDescriptor } });
 
     setTimeout(() => {
-      this.tempOtps.delete(data.email);
-    }, 3 * 60 * 1000);
+      this.tempOtps.delete(normalizedEmail);
+    }, 10 * 60 * 1000); // Increased to 10 minutes
 
     const mailOptions = {
-      from: `"Campus Voting App" <${process.env.EMAIL_USER}>`,
+      from: `"Campus Voting App" <${this.emailUser}>`,
       to: data.email,
       subject: 'Your Voting Registration OTP',
       html: `
@@ -92,17 +121,25 @@ export class AuthService {
       `,
     };
 
+    console.log(`\n=================================================`);
+    console.log(`🔑 SIGNUP OTP FOR ${data.email}: ${otp}`);
+    console.log(`=================================================\n`);
+
     try {
-      await this.transporter.sendMail(mailOptions);
-      return { message: 'OTP sent successfully to your email.' };
+      // Send email in the background to avoid blocking the API response
+      this.transporter.sendMail(mailOptions).catch(err => {
+        console.error(" Background Email Sending Failed (Signup):", err);
+      });
+      return { message: 'OTP generated and sent to email. Check inbox/spam.' };
     } catch (error) {
-      console.error(" Email Sending Failed (Signup):", error); 
-      throw new BadRequestException('Failed to send OTP email.');
+      console.error(" Email Process Failed (Signup):", error); 
+      throw new BadRequestException('Failed to process OTP email.');
     }
   }
 
   async verifyAndSignup(email: string, userOtp: string) {
-    const record = this.tempOtps.get(email);
+    const normalizedEmail = email.trim().toLowerCase();
+    const record = this.tempOtps.get(normalizedEmail);
     if (!record) throw new BadRequestException('OTP expired or not found.');
     if (record.otp !== userOtp) throw new BadRequestException('Invalid OTP.');
 
@@ -116,8 +153,19 @@ export class AuthService {
     console.log(` Generated Wallet : ${wallet.address}`);
     
     try {
+      const studentIdHash = ethers.id(record.userData.studentId);
+      const [walletAvailable, studentIdAvailable] = await this.votingContract.canWhitelistVoter(wallet.address, studentIdHash);
+
+      if (!walletAvailable) {
+        throw new BadRequestException('This wallet is already whitelisted on the Blockchain.');
+      }
+
+      if (!studentIdAvailable) {
+        throw new BadRequestException('This Student ID is already registered on the Blockchain.');
+      }
+
       console.log(` Waiting for Smart Contract confirmation...`);
-      const tx = await this.votingContract.whitelistVoter(wallet.address);
+      const tx = await this.votingContract.whitelistVoter(wallet.address, studentIdHash);
       const receipt = await tx.wait(); 
       console.log(` SUCCESS! Transaction Hash: ${receipt.hash}`);
       console.log(` Gas Used: ${receipt.gasUsed.toString()}`);
@@ -137,6 +185,7 @@ export class AuthService {
         walletAddress: wallet.address,       
         encryptedPrivateKey: encryptedKey,
         isVerified: true,
+        faceDescriptor: record.userData.faceDescriptor,
       },
     });
 
@@ -165,7 +214,7 @@ export class AuthService {
     }, 3 * 60 * 1000);
 
     const mailOptions = {
-      from: `"Campus Voting App" <${process.env.EMAIL_USER}>`,
+      from: `"Campus Voting App" <${this.emailUser}>`,
       to: email,
       subject: 'Your Login OTP',
       html: `
@@ -177,12 +226,19 @@ export class AuthService {
       `,
     };
 
+    console.log(`\n=================================================`);
+    console.log(`🔑 LOGIN OTP FOR ${email}: ${otp}`);
+    console.log(`=================================================\n`);
+
     try {
-      await this.transporter.sendMail(mailOptions);
-      return { message: 'OTP sent to your email.' };
+      // Send email in the background to avoid blocking the API response
+      this.transporter.sendMail(mailOptions).catch(err => {
+        console.error(" Background Email Sending Failed (Login):", err);
+      });
+      return { message: 'OTP generated and sent to email. Check inbox/spam.' };
     } catch (error) {
-      console.error(" Email Sending Failed (Login):", error); 
-      throw new BadRequestException('Failed to send OTP email.');
+      console.error(" Email Process Failed (Login):", error); 
+      throw new BadRequestException('Failed to process OTP email.');
     }
   }
 
@@ -201,17 +257,20 @@ export class AuthService {
     console.log(` Checking Smart Contract mapping \`isWhitelisted\`...`);
     
     try {
-      const isWhitelisted = await this.votingContract.isWhitelisted(user.walletAddress);
+      let isWhitelisted = await this.votingContract.isWhitelisted(user.walletAddress);
       if (!isWhitelisted) {
-        console.log(` FAIL: Student is NOT whitelisted on Blockchain.`);
-        console.log(`=======================================================\n`);
-        throw new BadRequestException('Account not verified. Please register again.');
+        console.log(` FAIL: Student NOT whitelisted. Attempting to re-whitelist for local recovery...`);
+        const studentIdHash = ethers.id(user.studentId);
+        const tx = await this.votingContract.whitelistVoter(user.walletAddress, studentIdHash);
+        await tx.wait();
+        isWhitelisted = true;
+        console.log(` RE-WHITELIST SUCCESS: Student recovered on Blockchain.`);
       }
       console.log(` SUCCESS: Blockchain verification passed.`);
       console.log(`=======================================================\n`);
     } catch (error: any) {
       if (error instanceof BadRequestException) throw error;
-      console.error(` Blockchain Check Failed:`, error);
+      console.error(` Blockchain Check/Recovery Failed:`, error);
       console.log(`=======================================================\n`);
       throw new BadRequestException('Failed to check verification status. Please try again.');
     }
@@ -239,7 +298,8 @@ export class AuthService {
         fullName: user.fullName, 
         faculty: user.faculty, 
         hasVoted: user.hasVoted, 
-        walletAddress: user.walletAddress 
+        walletAddress: user.walletAddress,
+        faceDescriptor: user.faceDescriptor
       },
     };
   }

@@ -2,21 +2,22 @@
 services:
   blockchain:
     image: campusvotingacrsea7768.azurecr.io/voting-blockchain:latest
+    command: ["sh", "-c", "npx ganache --server.host 0.0.0.0 --chain.chainId 31337 --port 8545 --wallet.mnemonic 'test test test test test test test test test test test junk' --database.dbPath /app/ganache_data & sleep 5 && npx hardhat run scripts/deploy.ts --network localhost && wait"]
     volumes:
       - ${WEBAPP_STORAGE_HOME}/ganache_data:/app/ganache_data
       - ${WEBAPP_STORAGE_HOME}/site/wwwroot/ignition:/app/ignition/deployments
   backend:
     image: campusvotingacrsea7768.azurecr.io/voting-backend:latest
     environment:
-      - DATABASE_URL=postgresql://neondb_owner:npg_HAY0ng3QbyIz@ep-shy-boat-anx9tggz-pooler.c-6.us-east-1.aws.neon.tech/neondb?sslmode=require&channel_binding=require&pgbouncer=true&connection_limit=5
-      - RPC_URL=http://blockchain:8545
-      - EMAIL_USER=belloracloths@gmail.com
-      - EMAIL_PASS=blfp htrg udqu xeuk
-      - JWT_SECRET=horizon_campus_super_secret_key_2026
-      - ENCRYPTION_KEY=MySuperSecretKeyForVotingApp123!
-      - ADMIN_PRIVATE_KEY=0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80
-      - VOTING_ADDRESS=0xe7f1725E7734CE288F8367e1Bb143E90bb3F0512
-      - FORWARDER_ADDRESS=0x5FbDB2315678afecb367f032d93F642f64180aa3
+      - DATABASE_URL=${DATABASE_URL:?DATABASE_URL is required}
+      - RPC_URL=${RPC_URL:-http://blockchain:8545}
+      - EMAIL_USER=${EMAIL_USER:?EMAIL_USER is required}
+      - EMAIL_PASS=${EMAIL_PASS:?EMAIL_PASS is required}
+      - JWT_SECRET=${JWT_SECRET:?JWT_SECRET is required}
+      - ENCRYPTION_KEY=${ENCRYPTION_KEY:?ENCRYPTION_KEY is required}
+      - ADMIN_PRIVATE_KEY=${ADMIN_PRIVATE_KEY:?ADMIN_PRIVATE_KEY is required}
+      - VOTING_ADDRESS=${VOTING_ADDRESS:?VOTING_ADDRESS is required}
+      - FORWARDER_ADDRESS=${FORWARDER_ADDRESS:?FORWARDER_ADDRESS is required}
   frontend:
     image: campusvotingacrsea7768.azurecr.io/voting-frontend:latest
     ports:

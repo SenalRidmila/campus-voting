@@ -6,7 +6,7 @@ export class AuthController {
   constructor(private readonly authService: AuthService) {}
 
   @Post('request-signup-otp')
-  async requestSignupOTP(@Body() body: { fullName: string; studentId: string; faculty: string; email: string }) {
+  async requestSignupOTP(@Body() body: { fullName: string; studentId: string; faculty: string; email: string; faceImage?: string }) {
     return this.authService.requestSignupOTP(body);
   }
 

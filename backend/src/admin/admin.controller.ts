@@ -15,7 +15,6 @@ export class AdminController {
   @Post('societies')
   async createSociety(@Body() body: any) { return this.adminService.createSociety(body); }
   
-  @UseInterceptors(CacheInterceptor) // 
   @Get('societies')
   async getSocieties() { return this.adminService.getSocieties(); }
   
@@ -29,7 +28,6 @@ export class AdminController {
   @Post('positions')
   async createPosition(@Body() body: any) { return this.adminService.createPosition(body); }
   
-  @UseInterceptors(CacheInterceptor) 
   @Get('societies/:id/positions')
   async getPositions(@Param('id') id: string) { return this.adminService.getPositions(Number(id)); }
   
@@ -43,7 +41,6 @@ export class AdminController {
   @Post('candidates')
   async createCandidate(@Body() body: any) { return this.adminService.createCandidate(body); }
   
-  @UseInterceptors(CacheInterceptor) 
   @Get('positions/:id/candidates')
   async getCandidates(@Param('id') id: string) { return this.adminService.getCandidates(Number(id)); }
   

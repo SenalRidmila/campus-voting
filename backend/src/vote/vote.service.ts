@@ -80,7 +80,7 @@ export class VoteService {
     };
   }
 
-  async castVote(userId: number, candidateId: number) {
+  async castVote(userId: number, candidateId: number, timeTaken: number, faceImage?: string) {
     const user = await this.prisma.user.findUnique({ where: { id: userId } });
     const candidate = await this.prisma.candidate.findUnique({
       where: { id: candidateId },
@@ -88,6 +88,33 @@ export class VoteService {
     });
 
     if (!user || !user.encryptedPrivateKey) throw new BadRequestException("User wallet not found!");
+
+    // Perform Face Verification via AI Microservice if applicable
+    if (user.faceDescriptor && faceImage) {
+        try {
+            const aiResponse = await fetch('http://127.0.0.1:8000/verify-face', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ 
+                    image_base64: faceImage,
+                    target_embedding: JSON.parse(user.faceDescriptor)
+                })
+            });
+            if (!aiResponse.ok) {
+                 throw new BadRequestException("Failed to verify face with AI Microservice.");
+            }
+            const aiData = await aiResponse.json();
+            if (!aiData.match) {
+                 throw new BadRequestException("Face verification failed! Identity does not match.");
+            }
+        } catch(err) {
+            console.error("AI Verify Error:", err);
+            if (err instanceof BadRequestException) throw err;
+            throw new BadRequestException("Face verification service is unavailable.");
+        }
+    } else if (user.faceDescriptor && !faceImage) {
+        throw new BadRequestException("Face image is required for verification.");
+    }
     if (!candidate) throw new BadRequestException("Candidate not found!");
 
     const positionId = candidate.positionId;
@@ -103,7 +130,7 @@ export class VoteService {
       const studentWallet = new ethers.Wallet(privateKey, this.provider);
 
       const votingInterface = new ethers.Interface(VotingABI.abi);
-      const data = votingInterface.encodeFunctionData("vote", [positionId, candidateId]);
+      const data = votingInterface.encodeFunctionData("vote", [positionId, candidateId, timeTaken]);
 
       const domain = {
         name: "MyForwarder",
