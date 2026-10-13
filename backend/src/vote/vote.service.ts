@@ -2,6 +2,7 @@ import { Injectable, BadRequestException, InternalServerErrorException } from '@
 import { PrismaService } from '../prisma.service';
 import { ethers } from 'ethers';
 import * as crypto from 'crypto';
+import * as nodemailer from 'nodemailer';
 
 import * as VotingABI from './Voting.json';
 import * as ForwarderABI from './MyForwarder.json';
@@ -12,6 +13,7 @@ export class VoteService {
   private provider: ethers.JsonRpcProvider;
   private adminWallet: ethers.Wallet;
   private forwarderContract: ethers.Contract;
+  private mailTransporter: nodemailer.Transporter;
 
   private readonly algorithm = 'aes-256-cbc';
   private readonly secretKey = process.env.ENCRYPTION_KEY || 'MySuperSecretKeyForVotingApp123!';
@@ -31,6 +33,13 @@ export class VoteService {
 
     this.provider = new ethers.JsonRpcProvider(rpcUrl);
     this.adminWallet = new ethers.Wallet(adminKey, this.provider);
+    this.mailTransporter = nodemailer.createTransport({
+      service: 'gmail',
+      auth: {
+        user: process.env.EMAIL_USER?.trim(),
+        pass: process.env.EMAIL_PASS?.replace(/\s+/g, '').trim(),
+      },
+    });
     
     this.forwarderContract = new ethers.Contract(
       forwarderAddr,
@@ -55,6 +64,31 @@ export class VoteService {
       console.error("Decryption Failure:", error);
       throw new BadRequestException("Failed to unlock student wallet.");
     }
+  }
+
+  private async sendVoteConfirmationEmail(
+    email: string,
+    voterName: string,
+    candidateName: string,
+    positionName: string,
+    transactionHash: string,
+  ) {
+    await this.mailTransporter.sendMail({
+      from: `"Campus Voting App" <${process.env.EMAIL_USER}>`,
+      to: email,
+      subject: 'Your vote has been recorded',
+      html: `
+        <div style="font-family: Arial, sans-serif; padding: 20px; color: #222;">
+          <h2>Campus Voting Confirmation</h2>
+          <p>Hello ${voterName},</p>
+          <p>Your vote has been successfully recorded.</p>
+          <p><strong>Candidate:</strong> ${candidateName}</p>
+          <p><strong>Position:</strong> ${positionName}</p>
+          <p><strong>Blockchain transaction:</strong> ${transactionHash}</p>
+          <p>Thank you for participating in the election.</p>
+        </div>
+      `,
+    });
   }
 
   async getVoteStatus(userId: number, societyId?: number) {
@@ -194,6 +228,19 @@ export class VoteService {
         where: { id: userId },
         data: { hasVoted: true }
       });
+
+      try {
+        await this.sendVoteConfirmationEmail(
+          user.email,
+          user.fullName,
+          candidate.name,
+          candidate.position.name,
+          receipt.hash,
+        );
+        console.log(`Vote confirmation email sent to ${user.email}`);
+      } catch (emailError) {
+        console.error('Vote confirmation email failed:', emailError);
+      }
 
       this.resultsGateway.notifyVoteUpdate(societyId);
 
